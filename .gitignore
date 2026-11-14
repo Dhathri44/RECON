@@ -1,24 +1,6 @@
-# Python virtual environments
-
 .venv/
-venv/
-env/
-
-# Python cache
-
-**pycache**/
-*.py[cod]
-
-# Environment variables and secrets
-
+__pycache__/
+*.pyc
 .env
-.env.*
-
-# IDE settings
-
-.vscode/
-
-# Operating system files
-
-.DS_Store
-Thumbs.db
+data/input_images/
+data/results/

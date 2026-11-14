@@ -3,11 +3,7 @@ import numpy as np
 
 
 def create_missing_mask(image_shape, received_tiles, tile_size=64):
-    """
-    Create a mask where:
-    0   = received pixels
-    255 = missing pixels
-    """
+
     height, width = image_shape[:2]
 
     mask = np.ones((height, width), dtype=np.uint8) * 255
@@ -29,11 +25,7 @@ def reconstruct_with_inpainting(
     missing_mask,
     method="telea"
 ):
-    """
-    Reconstruct missing regions using OpenCV inpainting.
-    """
-
-    # Ensure mask values are either 0 or 255
+    
     mask = (missing_mask > 0).astype(np.uint8) * 255
 
     if method.lower() == "telea":
