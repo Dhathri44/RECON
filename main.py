@@ -1,113 +1,31 @@
+import argparse
 import cv2
-import numpy as np
-
-from src.image_tiling import (
-    load_image,
-    divide_into_tiles,
-    reconstruct_from_tiles
-)
-
+from src.image_tiling import load_image, divide_into_tiles, reconstruct_from_tiles
 from src.network_simulator import simulate_packet_loss
-
-from src.image_reconstruction import (
-    create_missing_mask,
-    reconstruct_with_inpainting
-)
-
+from src.image_reconstruction import create_missing_mask, reconstruct_with_inpainting
+from src.evaluation import evaluate_image
 
 def main():
-
-    image_path = "data/input_images/sample.jpg"
-
-    image = load_image(image_path)
-
-    print("Original image shape:", image.shape)
-
-    tile_size = 32
-
-    tiles = divide_into_tiles(
-        image,
-        tile_size=tile_size
-    )
-
-    print("Total number of tiles:", len(tiles))
-
-    received, lost = simulate_packet_loss(
-        tiles,
-        loss_probability=0.10,
-        seed=42
-    )
-
-    print("Received tiles:", len(received))
-    print("Lost tiles:", len(lost))
-
-    actual_loss = (
-        len(lost) / len(tiles)
-    ) * 100
-
-    print(
-        f"Actual packet loss: {actual_loss:.2f}%"
-    )
-
-    incomplete_image = reconstruct_from_tiles(
-        received,
-        image.shape
-    )
-
-    for tile in lost.values():
-
-        y, x = tile["position"]
-
-        height, width = tile["data"].shape[:2]
-
-        incomplete_image[
-            y:y + height,
-            x:x + width
-        ] = 0
-
-    missing_mask = create_missing_mask(
-        image.shape,
-        received,
-        tile_size=tile_size
-    )
-
-    telea_result = reconstruct_with_inpainting(
-        incomplete_image,
-        missing_mask,
-        method="telea"
-    )
-
-    ns_result = reconstruct_with_inpainting(
-        incomplete_image,
-        missing_mask,
-        method="ns"
-    )
-
-    cv2.imshow(
-        "Original Image",
-        image
-    )
-
-    cv2.imshow(
-        "Image After Packet Loss",
-        incomplete_image
-    )
-
-    cv2.imshow(
-        "Telea Inpainting",
-        telea_result
-    )
-
-    cv2.imshow(
-        "Navier-Stokes Inpainting",
-        ns_result
-    )
-
-    print("\nPress any key on an image window to exit.")
-
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    main()
+    parser=argparse.ArgumentParser(description="RECON baseline image-loss/reconstruction demo")
+    parser.add_argument("--image",default="data/input_images/sample.jpg")
+    parser.add_argument("--tile-size",type=int,default=32)
+    parser.add_argument("--loss",type=float,default=0.15)
+    parser.add_argument("--seed",type=int,default=42)
+    parser.add_argument("--save-dir",default="data/results/demo")
+    args=parser.parse_args()
+    image=load_image(args.image,size=(512,512))
+    tiles=divide_into_tiles(image,args.tile_size)
+    received,lost=simulate_packet_loss(tiles,args.loss,args.seed)
+    incomplete=reconstruct_from_tiles(received,image.shape,dtype=image.dtype)
+    mask=create_missing_mask(image.shape,received)
+    import os
+    os.makedirs(args.save_dir,exist_ok=True)
+    cv2.imwrite(os.path.join(args.save_dir,"incomplete.png"),incomplete)
+    for method in ("telea","ns"):
+        result=reconstruct_with_inpainting(incomplete,mask,method)
+        cv2.imwrite(os.path.join(args.save_dir,f"{method}.png"),result)
+        print(method,evaluate_image(image,result,mask,data_range=255))
+    cv2.imwrite(os.path.join(args.save_dir,"missing_mask.png"),mask)
+    print(f"Tiles={len(tiles)} received={len(received)} lost={len(lost)}")
+    print("Results:",args.save_dir)
+if __name__=="__main__": main()
