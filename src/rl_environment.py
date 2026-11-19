@@ -6,7 +6,7 @@ from src.packet import packetize_tiles, reassemble_tiles
 from src.retransmission import SelectiveRepeatARQ
 from src.qos_scheduler import QoSScheduler
 from src.image_reconstruction import reconstruct_with_inpainting
-
+from src.unet_inpainting import reconstruct_with_unet
 
 class ReconstructionTransmissionEnv:
     """
@@ -32,12 +32,16 @@ class ReconstructionTransmissionEnv:
         roi_priority_map=None,
         evaluation_roi_mask=None,
         payload_bytes=1200,
-        max_retries=3
+        max_retries=3,
+        inpainting_model=None,
+        inpainting_device="cpu"
     ):
 
         self.tiles = tiles
         self.lost_tiles = lost_tiles
-
+        self.inpainting_model = inpainting_model
+        self.inpainting_device = inpainting_device
+        
         # Only use this map if it represents information available
         # to the receiver, not a hidden ground-truth segmentation.
         self.roi_priority_map = (
@@ -419,36 +423,61 @@ class ReconstructionTransmissionEnv:
         )
 
     def _inpaint_current_tile(self, tile):
-        """Recover using only genuine receiver-side pixels.
-
-        Previously reconstructed tiles are deliberately excluded from the
-        observation mask so their errors cannot cascade into later fills.
         """
-        if self.original_dtype == np.uint8:
-            receiver_image = self.canvas.copy()
+        Recover missing regions using the trained U-Net.
+        If the model is unavailable, use hybrid optimization-based
+        reconstruction as a fallback.
+        """
+
+        # Convert receiver image to normalized grayscale [0, 1].
+        receiver_image = self._normalise_image(self.canvas)
+
+        # 1 = missing, 0 = genuinely received.
+        missing_mask = (~self.received_mask).astype(np.uint8)
+
+        # Use trained U-Net if available.
+        if self.inpainting_model is not None:
+
+            reconstructed = reconstruct_with_unet(
+                model=self.inpainting_model,
+                incomplete=receiver_image,
+                missing_mask=missing_mask,
+                device=self.inpainting_device
+            )
+
         else:
-            receiver_image = self._normalise_image(self.canvas)
 
-        missing_mask = (~self.received_mask).astype(np.uint8) * 255
-        reconstructed = reconstruct_with_inpainting(
-            receiver_image,
-            missing_mask,
-            method="hybrid",
-            pyramid_levels=3,
-            refine_iterations=80,
-            lam=0.10,
-            prior_weight=0.35
-        )
+            # Existing optimization-based fallback.
+            reconstructed = reconstruct_with_inpainting(
+                receiver_image,
+                missing_mask * 255,
+                method="hybrid",
+                pyramid_levels=3,
+                refine_iterations=80,
+                lam=0.10,
+                prior_weight=0.35
+            )
 
+        # Extract the current missing tile.
         y, x = tile["position"]
         h, w = tile["data"].shape[:2]
-        patch = reconstructed[y:y+h, x:x+w, ...]
 
+        patch = reconstructed[y:y+h, x:x+w]
+
+        # Restore the original image's intensity range.
         if self.original_dtype == np.uint8:
-            return patch.astype(np.uint8)
+            return np.clip(
+                patch * 255.0, 0, 255
+            ).astype(np.uint8)
+
         if self.data_range == 1.0:
-            return np.clip(patch, 0.0, 1.0).astype(self.original_dtype)
-        return (patch * self.data_range).astype(self.original_dtype)
+            return np.clip(
+                patch, 0, 1
+            ).astype(self.original_dtype)
+
+        return (
+            patch * self.data_range
+        ).astype(self.original_dtype)
 
     def _quality_score(self, reconstructed, original):
 

@@ -8,7 +8,9 @@ import numpy as np
 import cv2
 import streamlit as st
 from PIL import Image
+import torch
 
+from src.unet_inpainting import load_inpainting_model
 from src.image_tiling import divide_into_tiles
 from src.network_simulator import simulate_packet_loss
 from src.rl_environment import ReconstructionTransmissionEnv
@@ -331,20 +333,51 @@ footer {
 
 # ----------------------------- HELPERS ---------------------------------
 @st.cache_resource
-def load_agent():
-    path = Path("models/recon_dqn.pt")
-    if not path.exists():
-        return None, "No trained 3-action checkpoint found. The app will use a clearly labelled rule-based fallback."
+def load_inpainting_unet():
+    """
+    Load the trained U-Net once and cache it for the Streamlit session.
+
+    The U-Net checkpoint is separate from the DQN policy checkpoint:
+      models/best_inpainting_model.pth
+    """
+    checkpoint_path = Path("models/best_inpainting_model.pth")
+    device = torch.device("cpu")
+
+    if not checkpoint_path.exists():
+        return None, device, "U-Net checkpoint not found; classical hybrid inpainting will be used."
+
     try:
-        import torch
-        ck = torch.load(path, map_location="cpu", weights_only=False)
-        if ck.get("state_dim") != 13 or ck.get("action_dim") != 3:
-            return None, "Incompatible checkpoint: expected 13 states and 3 actions. Retrain the model."
+        model = load_inpainting_model(str(checkpoint_path), device=device)
+        return model, device, "Trained U-Net loaded successfully."
+    except Exception as exc:
+        return None, device, f"U-Net loading failed; classical hybrid fallback will be used. Details: {exc}"
+
+
+def load_agent():
+    """Load the compatible 13-state, 3-action DQN checkpoint if available."""
+    path = Path("models/recon_dqn.pt")
+
+    if not path.exists():
+        return None, (
+            "No trained 3-action DQN checkpoint found. "
+            "The app will use a clearly labelled rule-based fallback."
+        )
+
+    try:
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+
+        if checkpoint.get("state_dim") != 13 or checkpoint.get("action_dim") != 3:
+            return None, (
+                "Incompatible DQN checkpoint: expected 13 states and 3 actions. "
+                "The app will use the rule-based fallback."
+            )
+
         agent = DQNAgent(state_dim=13, action_dim=3, device="cpu")
         agent.load(str(path))
         return agent, "Loaded trained 3-action DQN checkpoint."
+
     except Exception as exc:
-        return None, f"Checkpoint loading failed: {exc}"
+        return None, f"DQN checkpoint loading failed; using rule-based fallback. Details: {exc}"
 
 
 def png_bytes(arr):
@@ -355,74 +388,133 @@ def png_bytes(arr):
 
 def run_pipeline(original, roi_mask, tile_size, initial_loss, bandwidth, latency,
                  jitter, packet_loss, seed):
+    """
+    Execute packet-loss simulation and adaptive image recovery.
+
+    The trained U-Net is loaded before constructing the environment because
+    the environment receives the model in its constructor.
+    """
+    # Load the two independent learned components.
+    agent, dqn_status = load_agent()
+    inpainting_model, inpainting_device, unet_status = load_inpainting_unet()
+
     tiles = divide_into_tiles(original, tile_size=tile_size)
     _, lost = simulate_packet_loss(
         tiles, loss_probability=float(initial_loss), seed=int(seed)
     )
+
+    # Ensure the demonstration contains at least one affected tile.
     if not lost:
         tid = max(tiles)
         lost = {tid: tiles[tid]}
 
+    # NOTE: ReconstructionTransmissionEnv must accept these two keyword
+    # arguments, and its _inpaint_current_tile() must call reconstruct_with_unet
+    # when inpainting_model is not None.
     env = ReconstructionTransmissionEnv(
-        tiles=tiles, lost_tiles=lost, roi_mask=roi_mask,
-        roi_priority_map=roi_mask, evaluation_roi_mask=roi_mask,
-        seed=int(seed), payload_bytes=1200, max_retries=4
+        tiles=tiles,
+        lost_tiles=lost,
+        roi_mask=roi_mask,
+        roi_priority_map=roi_mask,
+        evaluation_roi_mask=roi_mask,
+        seed=int(seed),
+        payload_bytes=1200,
+        max_retries=4,
+        inpainting_model=inpainting_model,
+        inpainting_device=inpainting_device,
     )
+
     env.reset()
     env.network.update_conditions(
-        bandwidth_mbps=float(bandwidth), latency_ms=float(latency),
-        jitter_ms=float(jitter), loss_probability=float(packet_loss)
+        bandwidth_mbps=float(bandwidth),
+        latency_ms=float(latency),
+        jitter_ms=float(jitter),
+        loss_probability=float(packet_loss),
     )
+
     # Recompute the observation after applying the UI-selected network values.
     state = env._state()
-    agent, status = load_agent()
     receiver_before = env.canvas.copy()
-    decisions, total_reward = [], 0.0
+    decisions = []
+    total_reward = 0.0
+    policy = "Not selected"
 
     for _ in range(len(lost)):
         if agent is not None:
             action = agent.act(state, training=False)
             policy = "Trained 3-action DQN"
         else:
+            # Explicitly labelled heuristic fallback. This is NOT a trained
+            # reinforcement-learning policy.
             tid = env.ids[env.i]
             tile = env.lost_tiles[tid]
             roi_fraction = 0.0
+
             if roi_mask is not None:
                 y, x = tile["position"]
                 h, w = tile["data"].shape[:2]
-                roi_fraction = float((roi_mask[y:y+h, x:x+w] > 0).mean())
+                roi_fraction = float(
+                    (roi_mask[y:y + h, x:x + w] > 0).mean()
+                )
+
             config = env.network.config
             action = (
-                2 if roi_fraction >= 0.03 and config.loss_probability < 0.30
-                and config.bandwidth_mbps >= 0.5
-                else (1 if config.loss_probability < 0.12
-                      and config.bandwidth_mbps >= 1 and config.latency_ms < 100
-                      else 0)
+                2
+                if (
+                    roi_fraction >= 0.03
+                    and config.loss_probability < 0.30
+                    and config.bandwidth_mbps >= 0.5
+                )
+                else (
+                    1
+                    if (
+                        config.loss_probability < 0.12
+                        and config.bandwidth_mbps >= 1.0
+                        and config.latency_ms < 100
+                    )
+                    else 0
+                )
             )
             policy = "Rule-based fallback — not trained RL"
 
         state, reward, done, info = env.step(action)
-        total_reward += reward
+        total_reward += float(reward)
         decisions.append(info)
+
         if done:
             break
 
-    reconstructed = np.clip(env.canvas, 0, 1)
+    reconstructed = np.clip(env.canvas, 0.0, 1.0)
+
     metrics = evaluate_image(
-        original, reconstructed,
+        original,
+        reconstructed,
         missing_mask=env.initial_missing_mask,
-        data_range=1.0
+        data_range=1.0,
     )
     metrics["Recovery_Bytes"] = int(env.total_bytes)
     metrics["Priority_Metadata_Bytes"] = int(env.priority_metadata_bytes)
     metrics["Recovery_Delay_ms"] = float(
         sum(float(item.get("delay_ms", 0.0)) for item in decisions)
     )
+
     if roi_mask is not None:
         metrics["ROI_PSNR_dB"] = roi_psnr(
             original, reconstructed, roi_mask, data_range=1.0
         )
-    return reconstructed, receiver_before, metrics, decisions, total_reward, policy, status, env
+
+    status = f"{dqn_status} | {unet_status}"
+
+    return (
+        reconstructed,
+        receiver_before,
+        metrics,
+        decisions,
+        total_reward,
+        policy,
+        status,
+        env,
+    )
 
 
 def show_metric(label, value, help_text=""):
@@ -434,11 +526,12 @@ def show_metric(label, value, help_text=""):
         display = f"{value:.3f}"
     else:
         display = str(value)
+
     st.markdown(
         f'<div class="metric-card"><div class="metric-label">{label}</div>'
         f'<div class="metric-value">{display}</div>'
         f'<div class="metric-help">{help_text}</div></div>',
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 

@@ -1,6 +1,6 @@
-
 from collections import deque
 from dataclasses import dataclass
+
 
 @dataclass
 class QoSMetrics:
@@ -8,6 +8,7 @@ class QoSMetrics:
     bytes_sent: int = 0
     queue_drops: int = 0
     peak_occupancy: int = 0
+
 
 class PriorityScheduler:
     """
@@ -17,6 +18,8 @@ class PriorityScheduler:
       0 = critical / ROI
       1 = normal / non-ROI
       2 = control / ACK
+
+    Lower priority number means higher scheduling priority.
     """
 
     def __init__(self, capacity=100):
@@ -79,3 +82,31 @@ class PriorityScheduler:
             priority: vars(metric).copy()
             for priority, metric in self.metrics.items()
         }
+
+
+class QoSScheduler(PriorityScheduler):
+    """
+    QoS scheduler interface used by rl_environment.py.
+
+    Accepts packets, places them into priority queues,
+    and returns them in strict priority order.
+    """
+
+    def __init__(self, capacity=100):
+        super().__init__(capacity=capacity)
+
+    def schedule(self, packets):
+        scheduled_packets = []
+
+        # Enqueue packets
+        for packet in packets:
+            self.enqueue(packet)
+
+        # Dequeue in priority order
+        while len(self) > 0:
+            packet = self.dequeue()
+
+            if packet is not None:
+                scheduled_packets.append(packet)
+
+        return scheduled_packets
