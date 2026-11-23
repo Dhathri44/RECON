@@ -1,223 +1,330 @@
-# RECON — Optimization-Driven Medical Image Recovery
+# RECON – Medical Image Recovery in Unreliable Networks
 
-RECON is a research prototype for recovering missing regions of medical images
-transmitted over simulated unreliable networks. It combines image processing,
-numerical optimization, ARQ retransmission, QoS metadata and a 3-action DQN.
+RECON is an optimization-driven medical image recovery framework designed to handle missing image regions during transmission over unreliable networks.
 
-> **Research prototype only. It is not clinically validated and must not be used
-> for diagnosis or treatment decisions.** Classical inpainting cannot reliably
-> infer anatomy that is completely absent from the received data.
+It combines image reconstruction techniques with network-level recovery methods to study the trade-off between image quality, communication overhead, and recovery delay. Instead of relying only on retransmission or image reconstruction, RECON uses a Deep Q-Network (DQN) to select a recovery strategy based on image and network conditions.
 
-## What changed in this algorithmic update
+## 1. Problem
 
-### 1. Multiscale local reconstruction
+Medical images transmitted over networks can be affected by packet loss, limited bandwidth, latency, and jitter. When parts of an image are lost, the receiver must recover the missing information.
 
-`src/image_reconstruction.py` now supports `method="hybrid"`:
+There are two common approaches:
 
-1. Builds a coarse-to-fine estimate using the received image and missing-pixel mask.
-2. Combines coarse context with finer Telea inpainting.
-3. Refines only missing pixels using edge-aware regularization.
-4. Restores received pixels exactly before returning the result.
+- **Retransmission:** Request the missing data again. This can improve image accuracy but increases communication overhead and delay.
+- **Image reconstruction:** Estimate missing regions at the receiver. This reduces retransmission but may introduce reconstruction errors.
 
-The function still supports `telea` and `ns` for comparison. Input dtype/range is preserved.
+RECON combines both approaches and uses adaptive decision-making to select a recovery method.
 
-### 2. Optimization is now connected to Action 0
+## 2. Objectives
 
-`src/optimization.py` retains the original objective and finite-difference gradient
-check, and adds `edge_aware_refine()`.
+- Recover missing regions in medical images.
+- Preserve image information that was successfully received.
+- Reduce unnecessary retransmissions.
+- Give priority to important image regions using ROI information.
+- Balance image quality, communication overhead, and recovery delay.
+- Evaluate different recovery strategies under simulated network conditions.
 
-The refinement uses an initial inpainting estimate as a prior and weighted
-gradient regularization. Stronger estimated edges receive lower smoothing
-weights. Received pixels are hard constraints and are not changed.
+## 3. System Workflow
 
-This is a classical variational refinement, not a learned medical-image
-inpainting model. It cannot recreate unseen tumour structures with certainty.
+The overall processing pipeline is:
 
-### 3. Prevent cascading reconstruction errors
+1. Load a medical image.
+2. Preprocess and normalize the image.
+3. Divide the image into smaller tiles.
+4. Treat the tiles as individual transmission units.
+5. Simulate network conditions such as packet loss, bandwidth, latency, and jitter.
+6. Detect missing tiles at the receiver.
+7. Extract image-related and network-related features.
+8. Select a recovery action using the DQN policy, when a compatible trained checkpoint is available.
+9. Reconstruct or retransmit the missing tiles.
+10. Assemble the recovered image and evaluate the results.
 
-`src/rl_environment.py` now distinguishes:
-- `received_mask`: pixels actually received from the sender.
-- `available_mask`: pixels that can be displayed in the current output, including
-  locally reconstructed estimates.
+## 4. Recovery Strategies
 
-When reconstructing another missing tile, only `received_mask` is treated as
-trusted context. A previous hallucinated/reconstructed tile is not silently
-promoted to ground truth.
+RECON supports three recovery actions.
 
-### 4. Evaluation and metadata accounting
+### Action 0 – Local Reconstruction
 
-The app now reports missing-region PSNR as well as whole-image PSNR/SSIM, recovery
-bytes, delay and ROI PSNR when a segmentation mask is supplied.
+Missing image regions are estimated at the receiver using image reconstruction methods.
 
-When BraTS SEG is used as sender-side priority metadata, the simulator accounts
-for one priority byte per tile. This is a stated simulation assumption: metadata
-is piggybacked on tile headers, so its bytes are counted but no separate
-round-trip delay is added.
+The reconstruction methods include:
 
-### 5. DQN checkpoint compatibility
+- Telea inpainting
+- Navier–Stokes inpainting
+- Hybrid multiscale reconstruction
+- Residual U-Net-based reconstruction
+- Edge-aware numerical refinement
 
-The DQN still has **13 state features and 3 actions**. The receiver-state
-semantics changed because reconstructed tiles are no longer treated as received
-evidence. The queue model and expected-delay feature have since changed as well.
-Current checkpoints are marked `state_version=3` and `environment_version=3`.
-Older checkpoints are rejected rather than silently used with a different policy
-state or reward environment.
+The U-Net uses the incomplete image and missing-region mask to estimate the missing image content.
 
-**Retrain the DQN before relying on its decisions.** Until then, the app will
-show the rule-based fallback when an old checkpoint is present.
+### Action 1 – Normal ARQ
 
-## Actions
+Automatic Repeat reQuest (ARQ) is used to request missing packets again.
 
-| Action | Meaning |
+The receiver uses acknowledgements and selective retransmission to recover missing data.
+
+### Action 2 – QoS-Prioritized ARQ
+
+Quality of Service (QoS) is used to assign priorities to packets.
+
+Important image regions can be given higher transmission priority so that their missing data is handled before less important regions.
+
+## 5. Models and Techniques
+
+### Image Processing and Reconstruction
+
+- Image preprocessing and normalization
+- Image tiling and reassembly
+- Missing-region mask generation
+- Telea and Navier–Stokes inpainting
+- Hybrid multiscale reconstruction
+
+### Numerical Optimization
+
+An edge-aware refinement approach is used to improve reconstructed regions while preserving successfully received image information.
+
+### Residual U-Net
+
+A trained Residual U-Net is used for estimating missing image regions.
+
+Its input contains two channels:
+
+- Incomplete image
+- Missing-region mask
+
+The network uses an encoder-decoder structure with skip connections to retain spatial information during reconstruction.
+
+### Deep Reinforcement Learning
+
+A Deep Q-Network (DQN) is used to select among the three recovery actions.
+
+The model uses:
+
+- State dimension: 13
+- Number of actions: 3
+- Hidden layers: 2
+- Neurons per hidden layer: 128
+- Discount factor: 0.95
+
+The DQN decides which recovery strategy to use. The U-Net performs image reconstruction; these two models have different roles.
+
+## 6. Dataset
+
+RECON uses the **Brain Tumor Segmentation (BraTS) dataset** for medical image experiments.
+
+The implementation uses:
+
+- **FLAIR MRI:** Input medical image.
+- **Segmentation (SEG):** Tumour-region information used for ROI prioritization and evaluation.
+
+### Preprocessing
+
+1. Load the matching FLAIR and segmentation volumes.
+2. Select an axial slice.
+3. Normalize the FLAIR image intensities.
+4. Generate the corresponding ROI mask.
+5. Resize the image and mask for the experiment.
+6. Divide the image into transmission tiles.
+
+The segmentation mask is used as ROI metadata and for evaluation. It is not supplied to the reconstruction model as missing MRI image content.
+
+The BraTS dataset is not included in this repository and must be obtained separately.
+
+## 7. Network Simulation
+
+RECON evaluates recovery strategies under simulated network conditions.
+
+The application allows the user to configure:
+
+| Parameter | Description |
 |---|---|
-| 0 | Local reconstruction using multiscale inpainting + edge-aware optimization |
-| 1 | Normal ARQ retransmission |
-| 2 | QoS-priority ARQ retransmission |
+| Tile size | Size of each image tile |
+| Initial tile loss | Fraction of tiles initially lost |
+| Bandwidth | Available network bandwidth |
+| Latency | Network transmission delay |
+| Jitter | Variation in network delay |
+| Packet loss | Probability of packet loss |
+| Random seed | Controls the simulation randomness |
 
-The DQN selects among these actions. ARQ uses packet acknowledgements and bounded
-retries. The finite shared egress queue uses priority 0 for ROI, priority 1 for
-normal image traffic and priority 2 for best-effort/non-ROI traffic. Three
-competing background packets are modelled per retransmission decision. Queue
-overflow, retransmission counts and primary-flow completion delay are recorded.
-This is a controlled single-link multi-flow approximation, not a full
-standards-compliant TCP/IP stack or a validated production QoS scheduler.
+The simulator provides a controlled environment for comparing recovery strategies. It does not represent a deployment over a real TCP/UDP network.
 
-The current reward is explicit and component-wise:
+## 8. Evaluation Metrics
 
-`R = 10 Q - 0.25 B - 0.05 min(D, 30) - 2 F + 2 Q_ROI`
+The reconstructed image and communication performance are evaluated using:
 
-where `Q` is normalized tile quality, `B` is RECON wire bytes divided by the
-original tile size, `D` is primary-tile completion delay divided by its
-relative deadline, `F` indicates retransmission fallback, and `Q_ROI` is the
-ROI quality score when ROI ground truth is available for evaluation. The
-weights are experimental hyperparameters, not clinically validated values.
+| Metric | Purpose |
+|---|---|
+| PSNR | Measures pixel-level reconstruction quality |
+| SSIM | Measures structural similarity |
+| Missing-Region PSNR | Evaluates reconstruction quality in missing areas |
+| ROI PSNR | Measures quality within the selected ROI |
+| Recovery Bytes | Measures communication overhead |
+| Recovery Delay | Measures time spent recovering missing data |
 
-## Install and run
+These metrics help compare local reconstruction, retransmission, and adaptive recovery.
 
-Use Python 3.10–3.12 (recommended), then from the project root:
+## 9. Example Experimental Result
+
+The following values are from one demonstrated experimental run, not averages across the entire dataset.
+
+### Image Quality
+
+| Metric | Result |
+|---|---:|
+| PSNR | 29.750 dB |
+| SSIM | 0.960 |
+| Missing-Region PSNR | 22.991 dB |
+| ROI PSNR | 29.989 dB |
+
+### Communication Performance
+
+| Metric | Result |
+|---|---:|
+| Recovery Bytes | 15,895 bytes |
+| Priority Metadata Overhead | 256 bytes |
+| Recovery Delay | 147.306 ms |
+
+### Recovery Action Distribution
+
+| Recovery Action | Tiles Processed |
+|---|---:|
+| Local Reconstruction | 45 |
+| Normal ARQ | 5 |
+| QoS-Prioritized ARQ | 4 |
+| **Total** | **54** |
+
+Results depend on the input image, network configuration, random seed, and model checkpoint. Further experiments across different images and network conditions are needed to establish general performance.
+
+## 10. Technologies Used
+
+- **Programming Language:** Python
+- **Deep Learning:** PyTorch
+- **Image Processing:** OpenCV, NumPy, scikit-image
+- **Scientific Computing:** SciPy
+- **Medical Image Handling:** nibabel
+- **Data Analysis:** Pandas
+- **Application Interface:** Streamlit
+
+## 11. Project Structure
+
+The main project components are organized as follows:
+
+```text
+RECON/
+│
+├── app.py
+│
+├── src/
+│   ├── medical_data.py
+│   ├── image_tiling.py
+│   ├── image_reconstruction.py
+│   ├── optimization.py
+│   ├── network_simulator.py
+│   ├── retransmission.py
+│   ├── rl_environment.py
+│   ├── dqn_agent.py
+│   ├── replay_buffer.py
+│   ├── unet_inpainting.py
+│   └── evaluation.py
+│
+├── experiments/
+│   ├── train_dqn_brats.py
+│   └── other experiment and evaluation scripts
+│
+├── models/
+│   ├── best_inpainting_model.pth
+│   └── recon_dqn.pt
+│
+├── results/
+│
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
+
+Model checkpoints and experiment outputs may vary depending on the version of the project being used.
+
+## 12. Installation and Setup
+
+### Prerequisites
+
+- Python 3.10 or later
+- Git
+- pip
+
+### Clone the repository
+
+```bash
+git clone https://github.com/Dhathri44/RECON.git
+cd RECON
+```
+
+### Create a virtual environment
+
+**Windows (PowerShell):**
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### Install dependencies
+
+```bash
 pip install -r requirements.txt
+```
+
+### Model checkpoints
+
+Place the trained model checkpoints in the `models/` directory:
+
+- `best_inpainting_model.pth` – trained U-Net checkpoint.
+- `recon_dqn.pt` – DQN policy checkpoint compatible with the current source code.
+
+The application can use a rule-based fallback if a compatible DQN checkpoint is unavailable. A fallback run should not be interpreted as a trained reinforcement-learning result.
+
+### Run the application
+
+```bash
 streamlit run app.py
 ```
 
-Upload a matching BraTS FLAIR volume and SEG volume, or a 2-D image. SEG is used
-for ROI evaluation and the explicitly modelled sender-side priority metadata;
-it is not used as missing MRI pixel content.
+Open the local URL displayed in the terminal to access the RECON interface.
 
-## Retrain the 3-action DQN on BraTS
+## 13. Using the Application
 
-The bundled version-2 DQN checkpoint is intentionally treated as legacy:
-the revised environment now models ROI-aware priority admission, finite queue
-capacity and competing background traffic. Retrain the DQN before relying on
-its policy. The existing U-Net checkpoint is unchanged.
-With the BraTS files extracted into a folder containing matched
-`*_flair.nii.gz` and `*_seg.nii.gz` files:
+1. Start the Streamlit application.
+2. Select the input type:
+   - BraTS NIfTI (FLAIR + SEG)
+   - 2D image (PNG/JPG)
+3. Upload the image and, where applicable, its matching segmentation or ROI mask.
+4. Configure tile size and network conditions.
+5. Click **RUN RECON**.
+6. View the original image, receiver image before recovery, and reconstructed output.
+7. Inspect image-quality metrics and the recovery decision trace.
+8. Download the reconstructed image or complete run report.
 
-```powershell
-python -m experiments.train_dqn_brats --data "D:\BraTS_Dataset\Extracted_Training_Data" --patient-split "results\patient_split.json" --episodes 1500
-```
+## 14. Limitations
 
-The supplied `results/patient_split.json` reconstructs the previously recorded
-875/187/189 patient split from the project metadata. If your U-Net was trained
-with a different split, pass the exact `patient_split.json` created by that
-training run instead. Training duration depends on hardware. The script now
-compares Always Reconstruct, Always Retransmit, DQN and Always QoS on identical
-held-out patient/network seeds, and writes per-case results to
-`results/brats_test_results.csv`. Review action counts as well as image and
-network metrics. The bundled `results/comparison_results.csv` and
-`results/comparison_summary.csv` were generated before the queue changes and
-must be treated as legacy results; do not combine them with the new experiment.
-A completed script run is not, by itself, evidence of clinical validity or
-generalization.
+- Network behaviour is simulated rather than tested over a real communication network.
+- Reconstruction quality depends on the input image and the trained model.
+- ROI prioritization depends on the availability of suitable ROI metadata.
+- DQN performance depends on training and checkpoint compatibility.
+- Results from individual experiments do not establish general performance across all medical images.
+- The framework has not undergone clinical validation.
 
-## Compare reconstruction methods
+## 15. Future Work
 
-Run:
+- Evaluate the framework across more medical images and network configurations.
+- Improve DQN policy learning and generalization.
+- Study adaptive recovery under more realistic network conditions.
+- Improve reconstruction quality in complex missing regions.
+- Evaluate communication overhead and recovery time across larger experiments.
 
-```powershell
-python -m experiments.compare_reconstruction_methods
-```
+## 16. Disclaimer
 
-Optional:
+RECON is an academic research prototype developed to study medical image recovery under simulated network conditions. It is intended for experimentation and educational purposes only. It is not a medical diagnostic system and must not be used for clinical decisions.
 
-```powershell
-python -m experiments.compare_reconstruction_methods --image "data/input_images/sample.jpg" --loss 0.25 --tile-size 32 --seed 42
-```
+---
 
-The script compares Telea, Navier–Stokes and hybrid recovery using the same
-missing-tile pattern. It prints whole-image PSNR/SSIM, missing-region PSNR and
-whether received pixels remain exact. Images are saved to
-`results/reconstruction_comparison/`.
-
-Run the invariant test:
-
-```powershell
-python -m experiments.test_hybrid_reconstruction
-```
-
-## Metrics
-
-- PSNR: pixel-wise reconstruction error.
-- SSIM: structural similarity.
-- Missing-region PSNR: quality only where tiles were lost.
-- ROI PSNR: quality inside the supplied ROI mask.
-- Recovery bytes: retransmission plus priority-metadata overhead.
-- Recovery delay: simulated network time spent on recovery.
-
-Always report the exact dataset split, tile size, loss rate, random seeds and
-method settings alongside metrics. Do not compare results generated with
-different missing masks.
-
-## Important limitations / next research steps
-
-- Hybrid inpainting is a classical baseline; it is not expected to reconstruct
-  large missing anatomical structures as accurately as a suitably trained
-  medical-image model.
-- The sample-image comparison is only a smoke test. It is not BraTS validation.
-- The DQN must be retrained and tested on held-out patients after this update.
-- QoS priority is simulated at packet level; this is not a real network
-  deployment with competing flows or measured end-to-end QoS guarantees.
-- A stronger next step is a trained 2-D/3-D medical-image inpainting model,
-  trained only on training patients, with held-out patient evaluation and
-  tumour-region metrics. Never use SEG as a hidden reconstruction input.
-## Run regression tests
-
-From the project root:
-
-```powershell
-python -m pip install pytest
-python -m pytest
-```
-
-The regression suite checks checkpoint schema handling, queue admission and
-priority order, ROI-vs-non-ROI QoS behavior, AIMD rate reduction, source syntax,
-and (when `nibabel` is installed) label-independent FLAIR slice selection.
-
-## Optional real TCP transfer check
-
-The simulator and a real socket transfer answer different questions. To verify
-actual end-to-end TCP delivery and file integrity on two machines, start the
-receiver on one machine:
-
-```powershell
-python -m src.real_network receive --host 0.0.0.0 --port 5001 --file received.bin
-```
-
-Then send a file from the other machine:
-
-```powershell
-python -m src.real_network send --host <RECEIVER_IP> --port 5001 --file image.png
-```
-
-This measures real TCP throughput and verifies the received SHA-256 digest.
-It does not validate RECON's simulated Selective Repeat ARQ or reproduce its
-custom QoS queue; TCP performs its own reliability and congestion control.
-
-The BraTS patient volumes are not distributed in this project archive. The
-training and held-out evaluation commands must be run on your locally stored
-BraTS dataset; no new medical-image performance numbers are claimed by this
-patch.
+**Repository:** https://github.com/Dhathri44/RECON
