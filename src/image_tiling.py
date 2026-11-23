@@ -1,4 +1,15 @@
 import numpy as np
+import cv2
+
+
+def load_image(path, grayscale=False):
+    """Load an image from disk; raise a clear error if it cannot be decoded."""
+    flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    image = cv2.imread(str(path), flag)
+    if image is None:
+        raise FileNotFoundError(f"Could not read image: {path}")
+    return image
+
 
 
 def divide_into_tiles(image, tile_size=32):

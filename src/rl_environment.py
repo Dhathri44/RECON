@@ -42,14 +42,15 @@ class ReconstructionTransmissionEnv:
         self.inpainting_model = inpainting_model
         self.inpainting_device = inpainting_device
         
-        # Only use this map if it represents information available
-        # to the receiver, not a hidden ground-truth segmentation.
-        self.roi_priority_map = (
-            roi_priority_map if roi_priority_map is not None else roi_mask
-        )
+        # Only explicit sender-communicated tile-priority metadata is visible
+        # to the policy. The legacy roi_mask argument is evaluation-only.
+        self.roi_priority_map = roi_priority_map
 
-        # This mask is evaluator-only. It is never included in the state.
-        self.evaluation_roi_mask = evaluation_roi_mask
+        # Ground-truth segmentation is evaluator-only unless the sender
+        # explicitly supplies a separately modelled priority metadata map.
+        self.evaluation_roi_mask = (
+            evaluation_roi_mask if evaluation_roi_mask is not None else roi_mask
+        )
 
         # The sender communicates one compact priority byte per tile when
         # ROI-aware QoS metadata is enabled. These bytes are modelled as
@@ -65,6 +66,13 @@ class ReconstructionTransmissionEnv:
         self.rng = np.random.default_rng(seed)
 
         self.ids = list(lost_tiles.keys())
+        unknown_lost = set(self.ids) - set(tiles)
+        if unknown_lost:
+            raise ValueError(f"lost_tiles contains unknown tile IDs: {sorted(unknown_lost)}")
+        if not 0 < payload_bytes:
+            raise ValueError("payload_bytes must be positive")
+        if max_retries < 0:
+            raise ValueError("max_retries cannot be negative")
 
         if not self.ids:
             raise ValueError("lost_tiles cannot be empty")
@@ -113,7 +121,7 @@ class ReconstructionTransmissionEnv:
             )
             self.data_range = float(value_range) or 1.0
 
-        # Five image/context features + five network features.
+        # Six image/context features + seven network features.
         self.state_dim = 13
 
         self.reset()
@@ -278,16 +286,12 @@ class ReconstructionTransmissionEnv:
 
             edge_value = float(np.mean(edge[known]))
 
-        # Known ROI priority metadata.
-        roi_fraction = 0.0
-
+        # Receiver-visible metadata is one priority flag per tile. Do not
+        # expose the full segmentation mask or its pixel-wise ROI fraction.
+        roi_priority_flag = 0.0
         if self.roi_priority_map is not None:
-
             roi = self.roi_priority_map[y:y+h, x:x+w]
-
-            roi_fraction = float(
-                np.mean(np.asarray(roi) > 0)
-            )
+            roi_priority_flag = float(np.any(np.asarray(roi) > 0))
 
         # Fraction of known pixels in the surrounding context.
         context_confidence = float(np.mean(known))
@@ -319,7 +323,7 @@ class ReconstructionTransmissionEnv:
             mean_value,
             std_value,
             edge_value,
-            roi_fraction,
+            roi_priority_flag,
             context_confidence,
             boundary_confidence
         ]
@@ -569,13 +573,16 @@ class ReconstructionTransmissionEnv:
             # It is NOT exposed to the DQN observation.
             # Action 1 uses normal priority; Action 2 marks packets as
             # high-priority and passes them through the QoS scheduler.
-            packet_priority = 2 if int(action) == 2 else 1
+            packet_priority = 0 if int(action) == 2 else 1
             packets = packetize_tiles(
                 {tid: tile},
                 payload_bytes=self.payload_bytes,
                 priority=packet_priority
             )
             if int(action) == 2:
+                # The current RL step schedules this tile's fragments only.
+                # QoSScheduler supports mixed-tile batches, but the sequential
+                # environment does not claim cross-tile contention here.
                 packets = QoSScheduler().schedule(packets)
 
             arq = SelectiveRepeatARQ(
@@ -698,13 +705,14 @@ class ReconstructionTransmissionEnv:
             "tile_id": tid,
             "action": int(action),
             "action_name": {0: "Local reconstruction", 1: "Normal retransmission", 2: "QoS-prioritized retransmission"}[int(action)],
-            "packet_priority": (0 if int(action) == 0 else (2 if int(action) == 2 else 1)),
+            "packet_priority": (0 if int(action) == 2 else (1 if int(action) == 1 else None)),
             "quality": quality,
             "roi_quality": roi_quality,
             "bytes_sent": bytes_sent,
             "priority_metadata_bytes": metadata_charge,
             "delay_ms": delay_ms,
-            "fallback_used": fallback_used
+            "fallback_used": fallback_used,
+            "qos_scope": "single_tile_step" if int(action) == 2 else None
         }
 
         return next_state, float(reward), done, info

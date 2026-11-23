@@ -101,3 +101,76 @@ def check_gradient():
             xm[i,j] -= eps
             numeric[i,j] = (objective(xp,y,mask,lam)-objective(xm,y,mask,lam))/(2*eps)
     return float(np.linalg.norm(analytic-numeric))
+
+
+
+def exact_line_search_quadratic(gradient, direction, hessian):
+    """Exact minimizer alpha for a quadratic along ``x + alpha * direction``."""
+    g = np.asarray(gradient, dtype=np.float64)
+    d = np.asarray(direction, dtype=np.float64)
+    h = np.asarray(hessian, dtype=np.float64)
+    if g.shape != d.shape or h.shape != (g.size, g.size):
+        raise ValueError("gradient/direction/Hessian dimensions do not match")
+    denominator = float(d @ h @ d)
+    numerator = -float(g @ d)
+    if denominator <= 0:
+        raise ValueError("Exact line search requires positive curvature")
+    alpha = numerator / denominator
+    return max(0.0, float(alpha))
+
+
+def newton_quadratic_solve(hessian, gradient, x=None, damping=1e-8):
+    """One Newton step for a quadratic objective with optional diagonal damping."""
+    h = np.asarray(hessian, dtype=np.float64)
+    g = np.asarray(gradient, dtype=np.float64)
+    if h.shape != (g.size, g.size):
+        raise ValueError("Hessian shape must be (gradient_size, gradient_size)")
+    if not np.allclose(h, h.T, atol=1e-8):
+        raise ValueError("Hessian must be symmetric")
+    point = np.zeros_like(g) if x is None else np.asarray(x, dtype=np.float64)
+    if point.shape != g.shape:
+        raise ValueError("x and gradient must have matching shapes")
+    step = np.linalg.solve(h + damping * np.eye(g.size), -g)
+    return point + step
+
+
+def bfgs_minimize(function, gradient_function, x0, max_iterations=200,
+                  tolerance=1e-7):
+    """BFGS with Armijo backtracking for a differentiable scalar objective."""
+    x = np.asarray(x0, dtype=np.float64).copy()
+    n = x.size
+    inverse_hessian = np.eye(n)
+    history = []
+    for _ in range(max_iterations):
+        g = np.asarray(gradient_function(x), dtype=np.float64)
+        if g.shape != x.shape:
+            raise ValueError("gradient_function must return the same shape as x")
+        value = float(function(x))
+        history.append(value)
+        if np.linalg.norm(g) <= tolerance:
+            break
+        direction = -(inverse_hessian @ g)
+        if float(direction @ g) >= 0:
+            direction = -g
+            inverse_hessian = np.eye(n)
+        alpha = 1.0
+        while alpha > 1e-10:
+            candidate = x + alpha * direction
+            if float(function(candidate)) <= value + 1e-4 * alpha * float(g @ direction):
+                break
+            alpha *= 0.5
+        if alpha <= 1e-10:
+            break
+        s = alpha * direction
+        new_x = x + s
+        new_g = np.asarray(gradient_function(new_x), dtype=np.float64)
+        y = new_g - g
+        ys = float(y @ s)
+        if ys > 1e-12:
+            rho = 1.0 / ys
+            identity = np.eye(n)
+            left = identity - rho * np.outer(s, y)
+            inverse_hessian = (left @ inverse_hessian @ left.T
+                               + rho * np.outer(s, s))
+        x = new_x
+    return x, history

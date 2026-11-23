@@ -196,9 +196,9 @@ for ep in range(episodes):
 # 5. SAVE TRAINED MODEL
 # --------------------------------------------------
 
-agent.save("models/recon_dqn.pt")
+agent.save("models/recon_dqn_synthetic.pt")
 
-print("\nModel saved: models/recon_dqn.pt")
+print("\nSynthetic-data baseline saved: models/recon_dqn_synthetic.pt")
 
 
 # --------------------------------------------------

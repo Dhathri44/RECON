@@ -4,3 +4,6 @@ __pycache__/
 .env
 data/input_images/
 data/results/
+.venv312/
+.venv-1/
+recon.zip

@@ -58,8 +58,10 @@ round-trip delay is added.
 
 The DQN still has **13 state features and 3 actions**. The receiver-state
 semantics changed because reconstructed tiles are no longer treated as received
-evidence. New checkpoints are marked `state_version=2`. Old checkpoints are
-rejected by the loader rather than silently used with the changed environment.
+evidence. The queue model and expected-delay feature have since changed as well.
+Current checkpoints are marked `state_version=3` and `environment_version=3`.
+Older checkpoints are rejected rather than silently used with a different policy
+state or reward environment.
 
 **Retrain the DQN before relying on its decisions.** Until then, the app will
 show the rule-based fallback when an old checkpoint is present.
@@ -73,9 +75,22 @@ show the rule-based fallback when an old checkpoint is present.
 | 2 | QoS-priority ARQ retransmission |
 
 The DQN selects among these actions. ARQ uses packet acknowledgements and bounded
-retries. The QoS path attaches a priority class to retransmission packets.
-This simulator is an educational model, not a full standards-compliant network
-stack or a validated production QoS scheduler.
+retries. The finite shared egress queue uses priority 0 for ROI, priority 1 for
+normal image traffic and priority 2 for best-effort/non-ROI traffic. Three
+competing background packets are modelled per retransmission decision. Queue
+overflow, retransmission counts and primary-flow completion delay are recorded.
+This is a controlled single-link multi-flow approximation, not a full
+standards-compliant TCP/IP stack or a validated production QoS scheduler.
+
+The current reward is explicit and component-wise:
+
+`R = 10 Q - 0.25 B - 0.05 min(D, 30) - 2 F + 2 Q_ROI`
+
+where `Q` is normalized tile quality, `B` is RECON wire bytes divided by the
+original tile size, `D` is primary-tile completion delay divided by its
+relative deadline, `F` indicates retransmission fallback, and `Q_ROI` is the
+ROI quality score when ROI ground truth is available for evaluation. The
+weights are experimental hyperparameters, not clinically validated values.
 
 ## Install and run
 
@@ -95,20 +110,29 @@ it is not used as missing MRI pixel content.
 
 ## Retrain the 3-action DQN on BraTS
 
-The previous checkpoint is not compatible with the revised state semantics.
+The bundled version-2 DQN checkpoint is intentionally treated as legacy:
+the revised environment now models ROI-aware priority admission, finite queue
+capacity and competing background traffic. Retrain the DQN before relying on
+its policy. The existing U-Net checkpoint is unchanged.
 With the BraTS files extracted into a folder containing matched
 `*_flair.nii.gz` and `*_seg.nii.gz` files:
 
 ```powershell
-python -m experiments.train_dqn_brats --data "D:\BraTS_Dataset\Extracted_Training_Data" --episodes 1500
+python -m experiments.train_dqn_brats --data "D:\BraTS_Dataset\Extracted_Training_Data" --patient-split "results\patient_split.json" --episodes 1500
 ```
 
-Training duration depends on hardware. Confirm that a new
-`models/recon_dqn.pt` is created and inspect
-`results/brats_training_metrics.csv` and
-`results/brats_training_metadata.json`. A completed script run is not, by
-itself, evidence of generalization; evaluate on held-out patients and multiple
-network seeds.
+The supplied `results/patient_split.json` reconstructs the previously recorded
+875/187/189 patient split from the project metadata. If your U-Net was trained
+with a different split, pass the exact `patient_split.json` created by that
+training run instead. Training duration depends on hardware. The script now
+compares Always Reconstruct, Always Retransmit, DQN and Always QoS on identical
+held-out patient/network seeds, and writes per-case results to
+`results/brats_test_results.csv`. Review action counts as well as image and
+network metrics. The bundled `results/comparison_results.csv` and
+`results/comparison_summary.csv` were generated before the queue changes and
+must be treated as legacy results; do not combine them with the new experiment.
+A completed script run is not, by itself, evidence of clinical validity or
+generalization.
 
 ## Compare reconstruction methods
 
@@ -160,3 +184,40 @@ different missing masks.
 - A stronger next step is a trained 2-D/3-D medical-image inpainting model,
   trained only on training patients, with held-out patient evaluation and
   tumour-region metrics. Never use SEG as a hidden reconstruction input.
+## Run regression tests
+
+From the project root:
+
+```powershell
+python -m pip install pytest
+python -m pytest
+```
+
+The regression suite checks checkpoint schema handling, queue admission and
+priority order, ROI-vs-non-ROI QoS behavior, AIMD rate reduction, source syntax,
+and (when `nibabel` is installed) label-independent FLAIR slice selection.
+
+## Optional real TCP transfer check
+
+The simulator and a real socket transfer answer different questions. To verify
+actual end-to-end TCP delivery and file integrity on two machines, start the
+receiver on one machine:
+
+```powershell
+python -m src.real_network receive --host 0.0.0.0 --port 5001 --file received.bin
+```
+
+Then send a file from the other machine:
+
+```powershell
+python -m src.real_network send --host <RECEIVER_IP> --port 5001 --file image.png
+```
+
+This measures real TCP throughput and verifies the received SHA-256 digest.
+It does not validate RECON's simulated Selective Repeat ARQ or reproduce its
+custom QoS queue; TCP performs its own reliability and congestion control.
+
+The BraTS patient volumes are not distributed in this project archive. The
+training and held-out evaluation commands must be run on your locally stored
+BraTS dataset; no new medical-image performance numbers are claimed by this
+patch.

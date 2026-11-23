@@ -54,7 +54,9 @@ class SelectiveRepeatARQ:
                 if retry > 0:
                     retransmissions += 1
 
-                # Transmit original data packet.
+                # Count every attempted wire byte, including failed attempts
+                # and the simulated packet header.
+                data_bytes += packet.total_bytes
                 success, delay = self.network.transmit(packet)
 
                 # Include successful and failed transmission delays.
@@ -64,7 +66,6 @@ class SelectiveRepeatARQ:
                     continue
 
                 received_ids.add(packet.packet_id)
-                data_bytes += len(packet.payload)
 
                 # Simulate ACK path.
                 if self.simulate_ack:
@@ -78,8 +79,8 @@ class SelectiveRepeatARQ:
                         priority=packet.priority
                     )
 
+                    ack_bytes += ack_packet.total_bytes
                     ack_success, ack_delay = self.network.transmit(ack_packet)
-                    ack_bytes += len(ack_packet.payload)
 
                     # Include ACK transmission delay, even if the ACK is lost.
                     delays.append(ack_delay)
@@ -116,6 +117,7 @@ class SelectiveRepeatARQ:
                 sum(delays) / len(delays)
                 if delays else None
             ),
+            "total_delay_ms": float(sum(delays)),
             "delivery_ratio": delivery_ratio,
             "acknowledgement_ratio": acknowledgement_ratio,
             "data_bytes": data_bytes,

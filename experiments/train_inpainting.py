@@ -270,15 +270,83 @@ def reconstruction_loss(prediction, target, mask):
                    "edge": edges.detach()}
 
 
-def masked_metrics(prediction, target, mask):
-    """Return per-batch missing-region MAE, PSNR and global SSIM."""
-    diff = (prediction - target) * mask
-    count = mask.sum().clamp_min(1.0)
-    mae = diff.abs().sum() / count
-    mse = diff.square().sum() / count
-    psnr = 10.0 * torch.log10(1.0 / mse.clamp_min(1e-10))
-    ssim_value = 1.0 - ssim_loss(prediction, target)
-    return float(mae), float(psnr), float(ssim_value)
+def calculate_unet_metrics(prediction, target, mask):
+
+    from skimage.metrics import (
+        peak_signal_noise_ratio,
+        structural_similarity
+    )
+
+    prediction = prediction.detach().cpu().numpy()
+    target = target.detach().cpu().numpy()
+    mask = mask.detach().cpu().numpy().astype(bool)
+
+    results = []
+
+    for i in range(len(prediction)):
+
+        pred = prediction[i, 0]
+        original = target[i, 0]
+        missing = mask[i, 0]
+
+        # Final reconstructed image:
+        # Received pixels remain unchanged.
+        reconstructed = (
+            original * (~missing) +
+            pred * missing
+        )
+
+        # Full image metrics
+        mse = float(np.mean(
+            (original - reconstructed) ** 2
+        ))
+
+        mae = float(np.mean(
+            np.abs(original - reconstructed)
+        ))
+
+        psnr = peak_signal_noise_ratio(
+            original,
+            reconstructed,
+            data_range=1.0
+        )
+
+        ssim = structural_similarity(
+            original,
+            reconstructed,
+            data_range=1.0
+        )
+
+        # Missing-region metrics
+        if np.any(missing):
+
+            missing_mse = float(np.mean(
+                (original[missing] - reconstructed[missing]) ** 2
+            ))
+
+            missing_mae = float(np.mean(
+                np.abs(original[missing] - reconstructed[missing])
+            ))
+
+            missing_psnr = (
+                float("inf") if missing_mse == 0
+                else 10 * np.log10(1.0 / missing_mse)
+            )
+
+        else:
+            missing_mae = np.nan
+            missing_psnr = np.nan
+
+        results.append({
+            "mse": mse,
+            "mae": mae,
+            "psnr": float(psnr),
+            "ssim": float(ssim),
+            "missing_mae": missing_mae,
+            "missing_psnr": missing_psnr
+        })
+
+    return results
 
 
 def run_epoch(model, loader, optimizer, scaler, device, training, use_amp, label):
@@ -311,20 +379,31 @@ def run_epoch(model, loader, optimizer, scaler, device, training, use_amp, label
 
         losses.append(float(loss.detach().item()))
         if not training:
-            metric_rows.append(masked_metrics(
-                prediction.float(), target.float(), mask.float()
-            ))
+            metric_rows.extend(
+                calculate_unet_metrics(
+                prediction.float(),
+                target.float(),
+                mask.float()
+            )
+)
 
         progress.set_postfix(loss=f"{losses[-1]:.4f}")
 
     mean_loss = float(np.mean(losses)) if losses else float("nan")
     if metric_rows:
-        metrics = np.mean(np.asarray(metric_rows), axis=0)
-        return mean_loss, {
-            "missing_mae": float(metrics[0]),
-            "missing_psnr": float(metrics[1]),
-            "ssim": float(metrics[2]),
-        }
+
+        metrics = {}
+
+        for key in metric_rows[0]:
+
+            values = np.array([
+                row[key] for row in metric_rows
+            ], dtype=float)
+
+            metrics[key] = float(np.nanmean(values))
+
+        return mean_loss, metrics
+
     return mean_loss, {}
 
 
@@ -495,15 +574,28 @@ def main():
     )
 
     test_csv = output_dir / "test_metrics.csv"
+
     with test_csv.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["best_epoch", "test_loss",
-                                               "missing_mae", "missing_psnr", "ssim"])
-        writer.writeheader()
-        writer.writerow({
-            "best_epoch": best_epoch,
-            "test_loss": test_loss,
-            **test_metrics,
-        })
+
+        fields = [
+            "best_epoch",
+            "test_loss",
+            "mse",
+            "mae",
+            "psnr",
+            "ssim",
+            "missing_mae",
+            "missing_psnr"
+        ]
+
+    writer = csv.DictWriter(f, fieldnames=fields)
+    writer.writeheader()
+
+    writer.writerow({
+        "best_epoch": best_epoch,
+        "test_loss": test_loss,
+        **test_metrics
+    })
 
     print("\nTraining complete.")
     print(f"Best epoch: {best_epoch}")

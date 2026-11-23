@@ -29,170 +29,212 @@ st.set_page_config(
 # Streamlit's internal widget states and can make labels/options disappear.
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --page: #f4f7fb;
-  --surface: #ffffff;
-  --surface-soft: #edf3f8;
-  --border: #d8e2ec;
-  --ink: #172b3f;
-  --muted: #52677d;
-  --teal: #087f8c;
-  --teal-dark: #06616b;
-  --blue: #245e9b;
-  --shadow: 0 8px 24px rgba(25, 48, 73, .07);
+  --page: #07111f;
+  --page-glow: #0b1c2e;
+  --surface: #0e1d2e;
+  --surface-raised: #12243a;
+  --surface-soft: #162b42;
+  --border: rgba(157, 184, 207, .16);
+  --border-strong: rgba(157, 184, 207, .26);
+  --ink: #edf5fb;
+  --muted: #9aafc3;
+  --teal: #45d6c5;
+  --teal-dark: #18a99d;
+  --blue: #6ba8ff;
+  --shadow: 0 16px 42px rgba(0, 0, 0, .22);
 }
 
-/* App canvas and typography */
+/* Global canvas and typography */
 html, body, [class*="css"] {
   font-family: 'DM Sans', sans-serif;
 }
 .stApp {
-  background: var(--page);
+  background:
+    radial-gradient(ellipse at 78% 0%, rgba(32, 111, 130, .16), transparent 34%),
+    radial-gradient(ellipse at 5% 18%, rgba(47, 91, 145, .13), transparent 30%),
+    var(--page);
   color: var(--ink);
 }
 [data-testid="stHeader"] {
-  background: rgba(244,247,251,.92);
+  background: rgba(7, 17, 31, .78);
 }
+[data-testid="stToolbar"] { right: 1.5rem; }
 .block-container {
   max-width: 1500px;
-  padding-top: 1.6rem;
-  padding-bottom: 3rem;
+  padding-top: 2rem;
+  padding-bottom: 3.5rem;
 }
 h1, h2, h3, h4 {
-  color: #142b40 !important;
-  font-family: 'Space Grotesk', sans-serif !important;
-  letter-spacing: -.02em;
+  color: #f2f7fc !important;
+  font-family: 'Manrope', sans-serif !important;
+  letter-spacing: -.035em;
+  font-weight: 750 !important;
 }
+h1 { line-height: 1.12 !important; }
+h2, h3 { letter-spacing: -.025em; }
 p, li, .stMarkdown, .stText, .stCaption, small {
-  color: #263d53;
+  color: #c2d1df;
 }
-[data-testid="stCaptionContainer"] p,
-.stCaption {
-  color: #52677d !important;
+[data-testid="stCaptionContainer"] p, .stCaption {
+  color: var(--muted) !important;
 }
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
-  background: #eaf1f7;
-  border-right: 1px solid #d4e0eb;
+  background: linear-gradient(180deg, #0b192a 0%, #091522 100%);
+  border-right: 1px solid var(--border);
 }
 section[data-testid="stSidebar"] > div {
-  background: #eaf1f7;
+  background: transparent;
 }
 section[data-testid="stSidebar"] .block-container {
-  padding-top: 1.25rem;
+  padding: 1.5rem 1.15rem 2rem;
 }
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] h2 {
+  color: #f3f8fc !important;
+  font-family: 'Manrope', sans-serif !important;
+  letter-spacing: -.04em;
+}
+section[data-testid="stSidebar"] h3 {
+  color: #dceaf4 !important;
+  font-size: .92rem !important;
+}
 section[data-testid="stSidebar"] p,
 section[data-testid="stSidebar"] label {
-  color: #19344d !important;
+  color: #b7c8d8 !important;
+}
+section[data-testid="stSidebar"] hr {
+  border-color: var(--border) !important;
 }
 
-/* Header / hero */
+/* Hero */
 .hero {
-  padding: 1.65rem 1.8rem;
-  border: 1px solid #d4e2ec;
-  border-radius: 20px;
-  background: linear-gradient(115deg, #ffffff 0%, #e8f4f7 100%);
-  box-shadow: var(--shadow);
-  margin-bottom: 1.15rem;
+  position: relative;
+  overflow: hidden;
+  padding: 2.15rem 2.25rem;
+  border: 1px solid rgba(110, 194, 197, .24);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(69, 214, 197, .17), transparent 28%),
+    linear-gradient(118deg, #10243a 0%, #102d40 54%, #123b48 100%);
+  box-shadow: 0 22px 55px rgba(0, 0, 0, .24);
+  margin-bottom: 1.5rem;
+}
+.hero:after {
+  content: "";
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  right: -105px;
+  bottom: -165px;
+  border: 1px solid rgba(116, 229, 214, .2);
+  border-radius: 50%;
+  box-shadow: 0 0 0 26px rgba(116, 229, 214, .035), 0 0 0 54px rgba(116, 229, 214, .025);
+  pointer-events: none;
 }
 .eyebrow {
-  color: #087f8c !important;
+  color: var(--teal) !important;
   text-transform: uppercase;
-  letter-spacing: .15em;
-  font-size: .72rem;
-  font-weight: 700;
+  letter-spacing: .17em;
+  font-size: .69rem;
+  font-weight: 800;
 }
 .hero h1 {
-  color: #142b40 !important;
-  font-size: clamp(1.8rem, 3vw, 2.55rem);
-  margin: .3rem 0 .4rem 0;
+  color: #f4fbff !important;
+  font-size: clamp(2rem, 3.4vw, 2.9rem);
+  margin: .55rem 0 .55rem 0;
 }
 .hero p {
-  color: #405a70 !important;
+  color: #c1d5e3 !important;
   margin: 0;
-  font-size: 1rem;
-  line-height: 1.6;
+  max-width: 850px;
+  font-size: 1.02rem;
+  line-height: 1.75;
 }
 .pill {
   display: inline-block;
-  border: 1px solid #a8d4d7;
-  background: #e2f4f3;
-  color: #075c64 !important;
+  border: 1px solid rgba(90, 218, 202, .3);
+  background: rgba(58, 190, 177, .11);
+  color: #aaf4e9 !important;
   border-radius: 99px;
-  padding: .32rem .72rem;
-  font-size: .76rem;
+  padding: .38rem .78rem;
+  font-size: .72rem;
   font-weight: 700;
-  margin: .35rem .3rem 0 0;
+  margin: .7rem .35rem 0 0;
+  letter-spacing: .015em;
 }
 .section-kicker {
-  color: #087f8c !important;
-  font-size: .74rem;
-  letter-spacing: .13em;
+  color: var(--teal) !important;
+  font-size: .7rem;
+  letter-spacing: .17em;
   text-transform: uppercase;
-  font-weight: 700;
-  margin: .9rem 0 .45rem;
+  font-weight: 800;
+  margin: 1.45rem 0 .7rem;
 }
 
-/* Content panels and custom metric cards */
+/* Panels and custom metric cards */
 .panel {
-  background: var(--surface);
+  background: linear-gradient(145deg, rgba(19, 39, 60, .96), rgba(13, 29, 46, .96));
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  padding: 1.15rem 1.25rem;
   box-shadow: var(--shadow);
 }
 .metric-card {
-  background: #ffffff;
+  background: linear-gradient(145deg, #142a40, #0e1e30);
   border: 1px solid var(--border);
-  border-top: 3px solid #0b8992;
-  border-radius: 14px;
-  padding: .95rem 1rem;
-  min-height: 104px;
-  box-shadow: var(--shadow);
+  border-top: 2px solid var(--teal-dark);
+  border-radius: 16px;
+  padding: 1rem 1.05rem;
+  min-height: 112px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .16);
 }
 .metric-label {
-  color: #52677d !important;
-  font-size: .78rem;
+  color: #a9bdcf !important;
+  font-size: .75rem;
   font-weight: 700;
+  letter-spacing: .025em;
 }
 .metric-value {
-  color: #142b40 !important;
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.55rem;
-  font-weight: 700;
-  margin-top: .28rem;
+  color: #f1f8fd !important;
+  font-family: 'Manrope', sans-serif;
+  font-size: 1.65rem;
+  font-weight: 800;
+  margin-top: .32rem;
+  letter-spacing: -.035em;
 }
 .metric-help {
-  color: #61758a !important;
-  font-size: .72rem;
-  margin-top: .15rem;
+  color: #829bb0 !important;
+  font-size: .7rem;
+  margin-top: .18rem;
 }
 
-/* Native Streamlit metric widgets */
+/* Native Streamlit metrics */
 div[data-testid="stMetric"] {
-  background: #ffffff;
+  background: linear-gradient(145deg, #142a40, #0e1e30);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: .8rem .9rem;
-  box-shadow: 0 3px 12px rgba(25,48,73,.04);
+  border-radius: 16px;
+  padding: .9rem 1rem;
+  box-shadow: 0 9px 24px rgba(0, 0, 0, .14);
 }
 div[data-testid="stMetricLabel"] p {
-  color: #52677d !important;
-  font-weight: 600;
+  color: #a9bdcf !important;
+  font-weight: 650;
+  font-size: .78rem;
 }
 div[data-testid="stMetricValue"] {
-  color: #142b40 !important;
+  color: #f3f8fc !important;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 800;
 }
 div[data-testid="stMetricDelta"] {
-  color: #087f8c !important;
+  color: var(--teal) !important;
 }
 
-/* Widget labels and help text */
+/* Widget labels and help */
 [data-testid="stWidgetLabel"] p,
 [data-testid="stWidgetLabel"] label,
 .stRadio > label,
@@ -201,132 +243,171 @@ div[data-testid="stMetricDelta"] {
 .stSelectSlider > label,
 .stNumberInput > label,
 .stFileUploader > label {
-  color: #19344d !important;
-  font-weight: 600 !important;
+  color: #d5e2ed !important;
+  font-weight: 650 !important;
 }
-[data-testid="stHelp"] {
-  color: #52677d !important;
-}
+[data-testid="stHelp"] { color: #91a8bc !important; }
 
-/* Text inputs, number inputs, select boxes */
+/* Inputs and select controls */
 input, textarea {
-  color: #172b3f !important;
-  background: #ffffff !important;
-  -webkit-text-fill-color: #172b3f !important;
-  border-color: #bdcbd8 !important;
+  color: #edf5fb !important;
+  background: #102238 !important;
+  -webkit-text-fill-color: #edf5fb !important;
+  border-color: #2b435a !important;
 }
 [data-baseweb="input"] > div,
 [data-baseweb="textarea"] > div,
 [data-baseweb="select"] > div {
-  background: #ffffff !important;
-  border-color: #bdcbd8 !important;
+  background: #102238 !important;
+  border-color: #2b435a !important;
+  border-radius: 10px !important;
 }
-[data-baseweb="select"] * {
-  color: #172b3f !important;
-}
+[data-baseweb="select"] * { color: #edf5fb !important; }
 [role="listbox"], [role="option"], [data-baseweb="popover"] {
-  background: #ffffff !important;
-  color: #172b3f !important;
+  background: #102238 !important;
+  color: #edf5fb !important;
 }
 [role="option"]:hover, [aria-selected="true"] {
-  background: #e2f2f3 !important;
-  color: #123b48 !important;
+  background: #1a3a50 !important;
+  color: #b9fff4 !important;
 }
 
-/* Radio buttons, checkboxes and sliders */
+/* Radios, checkboxes and sliders */
 [data-testid="stRadio"] label,
-[data-testid="stCheckbox"] label {
-  color: #19344d !important;
-}
+[data-testid="stCheckbox"] label,
 [data-testid="stRadio"] p {
-  color: #19344d !important;
+  color: #cbd9e5 !important;
 }
-[data-testid="stSlider"] [data-testid="stTickBar"] {
-  color: #52677d !important;
+[data-testid="stSlider"] [data-testid="stTickBar"] { color: #91a8bc !important; }
+[data-testid="stSlider"] [role="slider"] { border-color: var(--teal) !important; }
+
+/* File uploader button: use the requested dark text colour */
+[data-testid="stFileUploader"] button,
+[data-testid="stFileUploader"] button *,
+[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button,
+[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] button * {
+  color: #0B192C !important;
+  -webkit-text-fill-color: #0B192C !important;
+}
+[data-testid="stFileUploader"] button svg {
+  color: #0B192C !important;
+  fill: #0B192C !important;
 }
 
 /* File uploader */
 [data-testid="stFileUploader"] {
-  background: #ffffff;
-  border: 1px dashed #8da7bb;
-  border-radius: 13px;
-  padding: .55rem;
+  background: rgba(16, 34, 54, .7);
+  border: 1px dashed #45647c;
+  border-radius: 14px;
+  padding: .65rem;
 }
 [data-testid="stFileUploader"] section {
-  background: #f4f8fb !important;
-  border-radius: 9px;
+  background: #12283e !important;
+  border-radius: 10px;
+  border: 1px solid rgba(157, 184, 207, .1);
 }
 [data-testid="stFileUploader"] section *,
 [data-testid="stFileUploader"] small,
 [data-testid="stFileUploader"] span {
-  color: #29445c !important;
+  color: #c6d6e3 !important;
 }
 
 /* Buttons */
-.stButton > button,
-.stDownloadButton > button {
-  color: #ffffff !important;
-  background: linear-gradient(100deg, #087f8c, #245e9b) !important;
-  border: 1px solid #087f8c !important;
-  border-radius: 10px !important;
-  font-weight: 700 !important;
-  min-height: 2.65rem;
+.stButton > button, .stDownloadButton > button {
+  color: #0B192C !important;
+  -webkit-text-fill-color: #0B192C !important;
+  background: linear-gradient(105deg, #55dfcc 0%, #62b9ed 100%) !important;
+  border: 1px solid rgba(91, 222, 207, .65) !important;
+  border-radius: 11px !important;
+  font-weight: 800 !important;
+  min-height: 2.75rem;
+  box-shadow: 0 8px 20px rgba(38, 184, 171, .16);
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
 }
-.stButton > button *,
-.stDownloadButton > button * {
-  color: #ffffff !important;
+.stButton > button *, .stDownloadButton > button * {
+  color: #0B192C !important;
+  -webkit-text-fill-color: #0B192C !important;
 }
-.stButton > button:hover,
-.stDownloadButton > button:hover {
-  background: #06616b !important;
-  border-color: #06616b !important;
+.stButton > button:hover, .stDownloadButton > button:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+  box-shadow: 0 11px 25px rgba(38, 184, 171, .24);
 }
 
 /* Tabs */
 .stTabs [data-baseweb="tab-list"] {
-  gap: .4rem;
-  border-bottom: 1px solid #d4e0eb;
+  gap: .45rem;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
 }
 .stTabs [data-baseweb="tab"] {
-  background: #e8eff5;
-  border-radius: 9px 9px 0 0;
-  padding: .65rem 1rem;
+  background: #102238;
+  border: 1px solid transparent;
+  border-radius: 10px 10px 0 0;
+  padding: .72rem 1rem;
 }
 .stTabs [data-baseweb="tab"] * {
-  color: #29445c !important;
-  font-weight: 600;
+  color: #a9bdcf !important;
+  font-weight: 700;
 }
 .stTabs [aria-selected="true"] {
-  background: #ffffff !important;
-  border-bottom: 3px solid #087f8c !important;
+  background: #173149 !important;
+  border: 1px solid var(--border) !important;
+  border-bottom: 2px solid var(--teal) !important;
 }
-.stTabs [aria-selected="true"] * {
-  color: #075f68 !important;
+.stTabs [aria-selected="true"] * { color: #aaf4e9 !important; }
+
+/* Alerts: dark text on the light warning surface */
+div[data-testid="stAlert"] {
+  background: #FFF8E1 !important;
+  background-color: #FFF8E1 !important;
+  border: 1px solid rgba(246, 190, 80, .42) !important;
+  border-radius: 13px !important;
+  color: #1C1C1E !important;
+}
+div[data-testid="stAlert"] *,
+div[data-testid="stAlert"] p,
+div[data-testid="stAlert"] span,
+div[data-testid="stAlert"] div {
+  color: #1C1C1E !important;
+  -webkit-text-fill-color: #1C1C1E !important;
+  opacity: 1 !important;
+}
+div[data-testid="stAlert"] svg {
+  fill: #1C1C1E !important;
+  color: #1C1C1E !important;
+}
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+  color: #e5eff7 !important;
+}
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+hr { border-color: var(--border) !important; }
+footer { visibility: hidden; }
+
+/* Streamlit sanitizes HTML wrappers between separate markdown calls.
+   Hide the resulting empty wrapper shells so they do not look like blank cards. */
+div[data-testid="stMarkdownContainer"]:has(> div.panel) {
+  display: none !important;
 }
 
-/* Alerts, tables, charts, separators */
-[data-testid="stAlert"] {
+/* Image presentation */
+[data-testid="stImage"] img {
   border-radius: 12px;
 }
-[data-testid="stAlert"] p,
-[data-testid="stAlert"] div {
-  color: #263d53 !important;
-}
-[data-testid="stDataFrame"],
-[data-testid="stTable"] {
-  color: #172b3f !important;
-}
-hr {
-  border-color: #d4e0eb !important;
-}
-footer {
-  visibility: hidden;
+[data-testid="stImage"] {
+  border-radius: 12px;
 }
 
 /* Responsive spacing */
 @media (max-width: 800px) {
   .block-container { padding-left: 1rem; padding-right: 1rem; }
-  .hero { padding: 1.2rem; }
+  .hero { padding: 1.45rem; border-radius: 18px; }
+  .hero p { font-size: .93rem; }
+  .metric-value { font-size: 1.4rem; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -364,11 +445,13 @@ def load_agent():
         )
 
     try:
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(path, map_location="cpu", weights_only=True)
 
-        if checkpoint.get("state_dim") != 13 or checkpoint.get("action_dim") != 3:
+        if (checkpoint.get("state_dim") != 13 or checkpoint.get("action_dim") != 3
+                or checkpoint.get("state_version") != 2):
             return None, (
-                "Incompatible DQN checkpoint: expected 13 states and 3 actions. "
+                "Incompatible or legacy DQN checkpoint: expected state version 2, "
+                "13 states and 3 actions. Retrain using experiments/train_dqn_brats.py. "
                 "The app will use the rule-based fallback."
             )
 
@@ -453,8 +536,9 @@ def run_pipeline(original, roi_mask, tile_size, initial_loss, bandwidth, latency
             if roi_mask is not None:
                 y, x = tile["position"]
                 h, w = tile["data"].shape[:2]
+                # Receiver-visible metadata is a single priority flag per tile.
                 roi_fraction = float(
-                    (roi_mask[y:y + h, x:x + w] > 0).mean()
+                    np.any(roi_mask[y:y + h, x:x + w] > 0)
                 )
 
             config = env.network.config
